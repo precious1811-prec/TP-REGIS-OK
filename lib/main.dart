@@ -2,19 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'api_client.dart';
+
 const _ink = Color(0xFF1D2939);
 const _muted = Color(0xFF667085);
 const _blue = Color(0xFF2457A7);
 const _violet = Color(0xFF147D75);
-const _demoUsername = 'amini';
-const _demoPassword = 'ben2026';
 
 void main() {
-  runApp(const CvApp());
+  runApp(CvApp());
 }
 
 class CvApp extends StatelessWidget {
-  const CvApp({super.key});
+  CvApp({super.key, CvApi? api}) : api = api ?? HttpCvApi();
+
+  final CvApi api;
 
   @override
   Widget build(BuildContext context) {
@@ -49,13 +51,15 @@ class CvApp extends StatelessWidget {
           bodyMedium: TextStyle(color: _muted, fontSize: 14, height: 1.55),
         ),
       ),
-      home: const LoginPage(),
+      home: LoginPage(api: api),
     );
   }
 }
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({required this.api, super.key});
+
+  final CvApi api;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -63,33 +67,44 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _hidePassword = true;
+  bool _registering = false;
+  bool _submitting = false;
   String? _errorMessage;
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  void _signIn() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final username = _usernameController.text.trim().toLowerCase();
-    final password = _passwordController.text;
-    if (username == _demoUsername && password == _demoPassword) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(builder: (_) => const PortfolioShell()),
-      );
-      return;
-    }
-
     setState(() {
-      _errorMessage = 'Identifiant ou mot de passe incorrect.';
+      _submitting = true;
+      _errorMessage = null;
     });
+    try {
+      final email = _emailController.text.trim();
+      final account = _registering
+          ? await widget.api.register(email, _passwordController.text)
+          : await widget.api.login(email, _passwordController.text);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => PortfolioShell(api: widget.api, account: account),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _errorMessage = error.message);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   @override
@@ -125,25 +140,35 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                             ),
                             const SizedBox(height: 7),
-                            const Text(
-                              'Connectez-vous pour découvrir mon univers.',
+                            Text(
+                              _registering
+                                  ? 'Créez un compte pour accéder à mon univers.'
+                                  : 'Connectez-vous pour découvrir mon univers.',
                               style: TextStyle(color: _muted, height: 1.5),
                             ),
                             const SizedBox(height: 28),
-                            const _FieldLabel('Identifiant'),
+                            const _FieldLabel('Adresse e-mail'),
                             const SizedBox(height: 9),
                             TextFormField(
-                              controller: _usernameController,
+                              controller: _emailController,
                               textInputAction: TextInputAction.next,
-                              autofillHints: const [AutofillHints.username],
+                              keyboardType: TextInputType.emailAddress,
+                              autofillHints: const [AutofillHints.email],
                               decoration: _inputDecoration(
-                                hint: 'Votre identifiant',
-                                icon: Icons.person_outline_rounded,
+                                hint: 'nom@exemple.com',
+                                icon: Icons.mail_outline_rounded,
                               ),
-                              validator: (value) =>
-                                  value == null || value.trim().isEmpty
-                                  ? 'Veuillez saisir votre identifiant.'
-                                  : null,
+                              validator: (value) {
+                                final email = value?.trim() ?? '';
+                                if (email.isEmpty) {
+                                  return 'Veuillez saisir votre adresse e-mail.';
+                                }
+                                if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                                    .hasMatch(email)) {
+                                  return 'Veuillez saisir une adresse e-mail valide.';
+                                }
+                                return null;
+                              },
                             ),
                             const SizedBox(height: 19),
                             const _FieldLabel('Mot de passe'),
@@ -153,7 +178,7 @@ class _LoginPageState extends State<LoginPage> {
                               obscureText: _hidePassword,
                               textInputAction: TextInputAction.done,
                               autofillHints: const [AutofillHints.password],
-                              onFieldSubmitted: (_) => _signIn(),
+                              onFieldSubmitted: (_) => _submit(),
                               decoration:
                                   _inputDecoration(
                                     hint: 'Votre mot de passe',
@@ -175,10 +200,15 @@ class _LoginPageState extends State<LoginPage> {
                                       ),
                                     ),
                                   ),
-                              validator: (value) =>
-                                  value == null || value.isEmpty
-                                  ? 'Veuillez saisir votre mot de passe.'
-                                  : null,
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Veuillez saisir votre mot de passe.';
+                                }
+                                if (_registering && value.length < 6) {
+                                  return 'Le mot de passe doit contenir au moins 6 caractères.';
+                                }
+                                return null;
+                              },
                             ),
                             if (_errorMessage != null) ...[
                               const SizedBox(height: 12),
@@ -195,7 +225,7 @@ class _LoginPageState extends State<LoginPage> {
                               width: double.infinity,
                               height: 54,
                               child: FilledButton(
-                                onPressed: _signIn,
+                                onPressed: _submitting ? null : _submit,
                                 style: FilledButton.styleFrom(
                                   backgroundColor: _blue,
                                   foregroundColor: Colors.white,
@@ -204,11 +234,13 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                   elevation: 0,
                                 ),
-                                child: const Row(
+                                child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Text(
-                                      'Se connecter',
+                                      _registering
+                                          ? 'Créer mon compte'
+                                          : 'Se connecter',
                                       style: TextStyle(
                                         fontSize: 15,
                                         fontWeight: FontWeight.w700,
@@ -220,7 +252,22 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 18),
+                            const SizedBox(height: 12),
+                            Center(
+                              child: TextButton(
+                                onPressed: _submitting
+                                    ? null
+                                    : () => setState(() {
+                                        _registering = !_registering;
+                                        _errorMessage = null;
+                                      }),
+                                child: Text(
+                                  _registering
+                                      ? 'J’ai déjà un compte : me connecter'
+                                      : 'Créer un compte',
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -279,7 +326,10 @@ InputDecoration _inputDecoration({
 }
 
 class PortfolioShell extends StatefulWidget {
-  const PortfolioShell({super.key});
+  const PortfolioShell({required this.api, required this.account, super.key});
+
+  final CvApi api;
+  final ApiAccount account;
 
   @override
   State<PortfolioShell> createState() => _PortfolioShellState();
@@ -287,8 +337,6 @@ class PortfolioShell extends StatefulWidget {
 
 class _PortfolioShellState extends State<PortfolioShell> {
   int _selectedIndex = 0;
-
-  static const _pages = <Widget>[ResumePage(), FamilyPage(), ContactPage()];
 
   static const _titles = ['Mon CV', 'Ma famille', 'Contact'];
 
@@ -299,7 +347,7 @@ class _PortfolioShellState extends State<PortfolioShell> {
 
   void _logout() {
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => const LoginPage()),
+      MaterialPageRoute<void>(builder: (_) => LoginPage(api: widget.api)),
       (route) => false,
     );
   }
@@ -326,7 +374,10 @@ class _PortfolioShellState extends State<PortfolioShell> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text('CV personnel', style: TextStyle(color: _muted)),
+                Text(
+                  widget.account.email,
+                  style: const TextStyle(color: _muted),
+                ),
                 const SizedBox(height: 24),
                 const Divider(indent: 22, endIndent: 22),
                 for (var index = 0; index < _titles.length; index++)
@@ -378,7 +429,14 @@ class _PortfolioShellState extends State<PortfolioShell> {
             ),
           ],
         ),
-        body: IndexedStack(index: _selectedIndex, children: _pages),
+        body: IndexedStack(
+          index: _selectedIndex,
+          children: [
+            const ResumePage(),
+            FamilyPage(api: widget.api),
+            const ContactPage(),
+          ],
+        ),
         bottomNavigationBar: SafeArea(
           top: false,
           child: Padding(
@@ -660,103 +718,321 @@ class ResumePage extends StatelessWidget {
   }
 }
 
-class FamilyPage extends StatelessWidget {
-  const FamilyPage({super.key});
+class FamilyPage extends StatefulWidget {
+  const FamilyPage({required this.api, super.key});
 
-  static const _members = [
-    _FamilyMember(
-      name: 'Alain MUNYAKATUNZI',
-      relationship: 'Père',
-      profession: 'Profession à compléter',
-      initials: 'AM',
-      tint: Color(0xFFE7EAFE),
-    ),
-    _FamilyMember(
-      name: 'Grace MUNYAKATUNZI',
-      relationship: 'Mère',
-      profession: 'Profession à compléter',
-      initials: 'GM',
-      tint: Color(0xFFF8E8F0),
-    ),
-    _FamilyMember(
-      name: 'Patrick MUNYAKATUNZI',
-      relationship: 'Frère',
-      profession: 'Profession à compléter',
-      initials: 'PM',
-      tint: Color.fromARGB(255, 109, 141, 168),
-    ),
-    _FamilyMember(
-      name: 'Esther MUNYAKATUNZI',
-      relationship: 'Sœur',
-      profession: 'Profession à compléter',
-      initials: 'EM',
-      tint: Color.fromARGB(255, 137, 212, 186),
-    ),
-  ];
+  final CvApi api;
+
+  @override
+  State<FamilyPage> createState() => _FamilyPageState();
+}
+
+class _FamilyPageState extends State<FamilyPage> {
+  List<FamilyMember> _members = [];
+  bool _loading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMembers();
+  }
+
+  Future<void> _loadMembers({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _loading = true;
+        _errorMessage = null;
+      });
+    }
+    try {
+      final members = await widget.api.listFamilyMembers();
+      if (!mounted) return;
+      setState(() {
+        _members = members;
+        _errorMessage = null;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _errorMessage = error.message);
+    } finally {
+      if (mounted && showLoading) setState(() => _loading = false);
+    }
+  }
+
+  Future<Map<String, String>?> _showMemberForm({FamilyMember? member}) async {
+    final formKey = GlobalKey<FormState>();
+    final fields = <String, TextEditingController>{
+      'nom': TextEditingController(text: member?.nom ?? ''),
+      'postnom': TextEditingController(text: member?.postnom ?? ''),
+      'prenom': TextEditingController(text: member?.prenom ?? ''),
+      'lieu_naissance': TextEditingController(
+        text: member?.lieuNaissance ?? '',
+      ),
+      'date_naissance': TextEditingController(
+        text: member?.dateNaissance ?? '',
+      ),
+      'parente': TextEditingController(text: member?.parente ?? ''),
+    };
+    final labels = {
+      'nom': 'Nom',
+      'postnom': 'Postnom',
+      'prenom': 'Prénom',
+      'lieu_naissance': 'Lieu de naissance',
+      'date_naissance': 'Date de naissance (AAAA-MM-JJ)',
+      'parente': 'Lien de parenté',
+    };
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          member == null ? 'Ajouter un membre' : 'Modifier le membre',
+        ),
+        content: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final entry in fields.entries)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: TextFormField(
+                        controller: entry.value,
+                        readOnly: entry.key == 'date_naissance',
+                        maxLength: switch (entry.key) {
+                          'nom' || 'postnom' || 'prenom' || 'parente' => 50,
+                          'lieu_naissance' => 100,
+                          _ => null,
+                        },
+                        decoration: InputDecoration(
+                          labelText: labels[entry.key],
+                          counterText: '',
+                        ),
+                        onTap: entry.key == 'date_naissance'
+                            ? () async {
+                                final now = DateTime.now();
+                                final current = DateTime.tryParse(
+                                  entry.value.text,
+                                );
+                                final date = await showDatePicker(
+                                  context: dialogContext,
+                                  initialDate: current ?? now,
+                                  firstDate: DateTime(1900),
+                                  lastDate: now,
+                                );
+                                if (date != null) {
+                                  entry.value.text =
+                                      '${date.year.toString().padLeft(4, '0')}-'
+                                      '${date.month.toString().padLeft(2, '0')}-'
+                                      '${date.day.toString().padLeft(2, '0')}';
+                                }
+                              }
+                            : null,
+                        validator: (value) {
+                          final text = value?.trim() ?? '';
+                          if (text.isEmpty) return 'Champ obligatoire.';
+                          if (entry.key == 'date_naissance' &&
+                              !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(text)) {
+                            return 'Utilisez le format AAAA-MM-JJ.';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (!formKey.currentState!.validate()) return;
+              Navigator.pop(
+                dialogContext,
+                fields.map(
+                  (key, controller) => MapEntry(key, controller.text.trim()),
+                ),
+              );
+            },
+            child: Text(member == null ? 'Ajouter' : 'Enregistrer'),
+          ),
+        ],
+      ),
+    );
+    for (final controller in fields.values) {
+      controller.dispose();
+    }
+    return result;
+  }
+
+  Future<void> _addMember() async {
+    final values = await _showMemberForm();
+    if (values == null) return;
+    try {
+      await widget.api.createFamilyMember(values);
+      await _loadMembers(showLoading: false);
+      if (mounted) _showMessage('Membre ajouté.');
+    } on ApiException catch (error) {
+      if (mounted) _showMessage(error.message);
+    }
+  }
+
+  Future<void> _editMember(FamilyMember member) async {
+    final values = await _showMemberForm(member: member);
+    if (values == null) return;
+    try {
+      await widget.api.updateFamilyMember(member.id, values);
+      await _loadMembers(showLoading: false);
+      if (mounted) _showMessage('Membre modifié.');
+    } on ApiException catch (error) {
+      if (mounted) _showMessage(error.message);
+    }
+  }
+
+  Future<void> _deleteMember(FamilyMember member) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Supprimer ce membre ?'),
+        content: Text('Cette action supprimera ${member.fullName} de la base.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.api.deleteFamilyMember(member.id);
+      await _loadMembers(showLoading: false);
+      if (mounted) _showMessage('Membre supprimé.');
+    } on ApiException catch (error) {
+      if (mounted) _showMessage(error.message);
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-      children: [
-        const Text(
-          'Les personnes qui comptent',
-          style: TextStyle(
-            color: _ink,
-            fontSize: 23,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.6,
+    return RefreshIndicator(
+      onRefresh: _loadMembers,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+        children: [
+          const Text(
+            'Les personnes qui comptent',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 23,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.6,
+            ),
           ),
-        ),
-        const SizedBox(height: 7),
-        const Text(
-          'Ma famille est une source précieuse de soutien et d’inspiration.',
-          style: TextStyle(color: _muted, height: 1.5),
-        ),
-        const SizedBox(height: 19),
-        for (final member in _members) ...[
-          _FamilyCard(member: member),
+          const SizedBox(height: 7),
+          const Text(
+            'Ma famille est une source précieuse de soutien et d’inspiration.',
+            style: TextStyle(color: _muted, height: 1.5),
+          ),
+          const SizedBox(height: 15),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: _addMember,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: const Text('Ajouter un membre'),
+            ),
+          ),
           const SizedBox(height: 12),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(28),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_errorMessage != null)
+            GlassPanel(
+              child: Column(
+                children: [
+                  Text(_errorMessage!, textAlign: TextAlign.center),
+                  TextButton(
+                    onPressed: _loadMembers,
+                    child: const Text('Réessayer'),
+                  ),
+                ],
+              ),
+            )
+          else if (_members.isEmpty)
+            const GlassPanel(
+              child: Text(
+                'Aucun membre enregistré. Ajoutez le premier membre de votre famille.',
+                textAlign: TextAlign.center,
+              ),
+            )
+          else
+            for (final member in _members) ...[
+              _FamilyCard(
+                member: member,
+                onEdit: () => _editMember(member),
+                onDelete: () => _deleteMember(member),
+              ),
+              const SizedBox(height: 12),
+            ],
         ],
-      ],
+      ),
     );
   }
 }
 
-class _FamilyMember {
-  const _FamilyMember({
-    required this.name,
-    required this.relationship,
-    required this.profession,
-    required this.initials,
-    required this.tint,
+class _FamilyCard extends StatelessWidget {
+  const _FamilyCard({
+    required this.member,
+    required this.onEdit,
+    required this.onDelete,
   });
 
-  final String name;
-  final String relationship;
-  final String profession;
-  final String initials;
-  final Color tint;
-}
-
-class _FamilyCard extends StatelessWidget {
-  const _FamilyCard({required this.member});
-
-  final _FamilyMember member;
+  final FamilyMember member;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
+    final initials =
+        '${member.prenom.isNotEmpty ? member.prenom[0] : ''}'
+                '${member.nom.isNotEmpty ? member.nom[0] : ''}'
+            .toUpperCase();
     return GlassPanel(
       padding: const EdgeInsets.all(15),
       child: Row(
         children: [
           Container(
-            width: 60,
-            height: 60,
+            width: 56,
+            height: 56,
             alignment: Alignment.center,
-            color: member.tint,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE7EAFE),
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Text(
-              member.initials,
+              initials,
               style: const TextStyle(
                 color: _blue,
                 fontWeight: FontWeight.bold,
@@ -764,13 +1040,13 @@ class _FamilyCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 15),
+          const SizedBox(width: 13),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  member.relationship.toUpperCase(),
+                  member.parente.toUpperCase(),
                   style: const TextStyle(
                     color: _blue,
                     fontSize: 10,
@@ -780,7 +1056,7 @@ class _FamilyCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  member.name,
+                  member.fullName,
                   style: const TextStyle(
                     color: _ink,
                     fontWeight: FontWeight.w700,
@@ -789,16 +1065,30 @@ class _FamilyCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  member.profession,
+                  '${member.lieuNaissance} · ${member.dateNaissance}',
                   style: const TextStyle(color: _muted, fontSize: 12),
                 ),
               ],
             ),
           ),
-          Icon(
-            Icons.favorite_rounded,
-            size: 17,
-            color: const Color(0xFFEA91A2).withValues(alpha: 0.8),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Modifier ${member.fullName}',
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined, color: _blue, size: 19),
+              ),
+              IconButton(
+                tooltip: 'Supprimer ${member.fullName}',
+                onPressed: onDelete,
+                icon: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Color(0xFFB34353),
+                  size: 19,
+                ),
+              ),
+            ],
           ),
         ],
       ),

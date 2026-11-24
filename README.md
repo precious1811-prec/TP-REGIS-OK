@@ -1,91 +1,105 @@
 # CV Flutter — Regis MUNYAKATUNZI
 
-Portfolio et CV personnel réalisés avec Flutter. L’interface adopte une
-présentation professionnelle et épurée, avec une palette bleu marine, des
-accents bleu-vert, une typographie lisible et des cartes à la mise en page
-soignée. Aucune photo personnelle n’est utilisée.
-
-## Présentation
-
-Regis MUNYAKATUNZI est présenté comme étudiant en informatique et développeur
-Flutter en devenir à Goma, en République démocratique du Congo. Le portfolio
-regroupe son profil, sa formation, ses projets, ses compétences, ses langues,
-ses centres d’intérêt, une présentation de sa famille et ses coordonnées.
-
-Les détails de parcours, les membres de la famille et les coordonnées de
-démonstration sont à vérifier et à personnaliser avant diffusion.
+Application Flutter de présentation du CV et de gestion des membres de la
+famille. L’authentification et les opérations sur les membres communiquent avec
+l’API REST PHP/MySQL du TP : les membres ne sont pas conservés uniquement dans
+l’application.
 
 ## Fonctionnalités
 
-- Connexion de démonstration avec validation des champs.
-- Page **Mon CV** : profil, formation, projets, compétences, langues et intérêts.
-- Page **Ma famille** : cartes sans photos, avec initiales et noms d’exemple
-  portant le nom **MUNYAKATUNZI**.
-- Page **Contact** : actions pour téléphoner, envoyer un e-mail, copier
-  l’adresse et consulter les réseaux sociaux.
-- Menu latéral et barre de navigation.
-- Mise en page responsive pour les différentes tailles d’écran.
+- Création de compte et connexion avec vérification par l’API.
+- Accès au portfolio après authentification.
+- Consultation, ajout, modification et suppression des membres via l’API.
+- Actualisation de la liste des membres depuis la base de données.
+- Présentation du CV et des coordonnées, avec navigation responsive.
 
-### Identifiants de démonstration
+Les routes de comptes et de membres utilisées par l’application sont décrites
+dans le [README de l’API](https://github.com/espoirbaraka/api-test). Selon ce
+README, les routes de membres ne vérifient pas de jeton : l’écran de connexion
+de l’application contrôle l’accès à l’interface, mais l’API doit être protégée
+séparément si elle est exposée au-delà d’un environnement de TP.
 
-| Champ | Valeur |
-|---|---|
-| Identifiant | `amini` |
-| Mot de passe | `ben2026` |
+## Démonstration vidéo
 
-Ces identifiants sont codés dans l’application à des fins de démonstration.
-Cette connexion ne constitue pas un système d’authentification sécurisé.
+<video controls width="100%" src="https://raw.githubusercontent.com/precious1811-prec/TP-REGIS-OK/main/demo/TP2-demonstration.mp4">
+  Votre navigateur ne prend pas en charge la lecture vidéo.
+</video>
+
+[Ouvrir ou télécharger la vidéo de démonstration](demo/TP2-demonstration.mp4)
+
+## API et configuration
+
+L’API fournie utilise PHP, Apache et MySQL. Suivez son [guide d’installation](https://github.com/espoirbaraka/api-test#installation)
+pour importer `api.sql`, configurer `.env` et démarrer les services. L’URL
+requise inclut le segment `/public`.
+
+Par défaut, l’application utilise `http://10.0.2.2/api-test/public`, adresse
+permettant à un émulateur Android d’atteindre le `localhost` de l’ordinateur.
+Pour une autre cible, passez l’adresse de votre serveur avec `API_BASE_URL` :
+
+```bash
+# Android Emulator
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2/api-test/public
+
+# Navigateur ou Windows
+flutter run --dart-define=API_BASE_URL=http://localhost/api-test/public
+```
+
+Sur un téléphone physique, remplacez `localhost` par l’adresse IP locale de
+l’ordinateur hébergeant XAMPP, par exemple
+`http://192.168.1.20/api-test/public`. Vérifiez que le téléphone et l’ordinateur
+sont sur le même réseau et que le pare-feu autorise Apache. Sur iOS, utilisez
+une URL HTTPS accessible à l’appareil : iOS peut refuser les connexions HTTP
+non chiffrées.
+
+L’application ne contient pas de compte de démonstration précréé : créez un
+compte depuis l’écran d’accueil, puis connectez-vous avec les mêmes identifiants.
+L’API stocke les comptes dans sa base de données et chiffre les mots de passe
+côté serveur.
+
+## Installation et lancement
+
+Prérequis : Flutter/Dart compatibles avec `pubspec.yaml`, ainsi que l’API
+démarrée pour tester la connexion et les données de famille.
+
+```bash
+flutter pub get
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2/api-test/public
+```
+
+Pour le Web, ajoutez l’URL de l’API appropriée. L’API fournie autorise CORS pour
+ses endpoints.
+
+## Vérification
+
+```bash
+flutter analyze
+flutter test
+```
+
+Les tests couvrent les appels HTTP d’authentification et du CRUD famille, ainsi
+que le parcours d’inscription/connexion et l’accès à la page famille.
 
 ## Technologies
 
 - Flutter et Dart
-- Material 3
-- [`url_launcher`](https://pub.dev/packages/url_launcher)
+- API REST PHP/MySQL : [`espoirbaraka/api-test`](https://github.com/espoirbaraka/api-test)
+- [`http`](https://pub.dev/packages/http) pour les appels REST
+- [`url_launcher`](https://pub.dev/packages/url_launcher) pour les coordonnées
 - `flutter_test`
-
-Le projet inclut des configurations pour Android, iOS, le Web, Windows, macOS
-et Linux. La compilation de chaque cible nécessite les outils correspondants.
-
-## Prérequis et lancement
-
-Installez Flutter, puis vérifiez l’environnement avec `flutter doctor`. Depuis
-la racine du projet :
-
-```bash
-flutter pub get
-flutter run
-```
-
-Pour lancer la version Web dans Chrome :
-
-```bash
-flutter devices
-flutter run -d chrome
-```
-
-## Tests
-
-```bash
-flutter test
-flutter analyze
-```
-
-Le test d’interface couvre la connexion de démonstration et la navigation entre
-les pages principales.
 
 ## Structure
 
 ```text
 .
-├── lib/main.dart       # Écrans et composants Flutter
-├── test/               # Tests d’interface
-├── assets/             # Ressources de l’application
-├── android/            # Cible Android
-├── ios/                # Cible iOS
-├── linux/              # Cible Linux
-├── macos/              # Cible macOS
-├── web/                # Cible Web
-├── windows/            # Cible Windows
-├── pubspec.yaml        # Dépendances et métadonnées
-└── pubspec.lock        # Versions résolues des dépendances
+├── lib/
+│   ├── api_client.dart   # Modèles et client REST
+│   └── main.dart         # Écrans Flutter et gestion famille
+├── test/                 # Tests widget et API
+├── android/              # Cible Android
+├── ios/                  # Cible iOS
+├── web/                  # Cible Web
+├── windows/               # Cible Windows
+├── pubspec.yaml          # Dépendances Flutter
+└── pubspec.lock          # Versions résolues des dépendances
 ```
